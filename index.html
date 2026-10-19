@@ -1,11 +1,1259 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<title>测试网站</title>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>常在 · 常世概念小样</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #fff; overflow: hidden;
+    font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+  canvas { display: block; }
+  /* 顶部地名导航条：面包屑（常世 › 洲 › 域 › 州 › 城 › 坊 › 里）+ 同级切换 + 返回上一个视野。
+     它以前只是一行只读说明，现在每个地名都能点，点了就飞到那一级 ——
+     所以 pointer-events 由 none 改成可交互。 */
+  .hud { position: fixed; left: 50%; top: 18px; transform: translateX(-50%);
+    background: rgba(255,255,255,.9); border: 1px solid #e8e8ea; border-radius: 16px;
+    padding: 8px 16px 7px; font-size: 13px; color: #6a6a6e; letter-spacing: .08em;
+    user-select: none; max-width: 90vw; box-shadow: 0 6px 20px rgba(0,0,0,.04); }
+  .hudLine { display: flex; align-items: center; justify-content: center; gap: 12px; }
+  .crumb { display: flex; align-items: center; flex-wrap: wrap; justify-content: center; }
+  .hudSub { margin-top: 4px; text-align: center; font-size: 11px; color: #b4b4b8;
+    letter-spacing: .06em; }
+  /* 可点的地名：悬浮给一层浅底，当前所在的那一级加重 */
+  .crumb .c, .hudSub .c { cursor: pointer; padding: 1px 5px; border-radius: 7px; transition: all .18s; }
+  .crumb .c:hover, .hudSub .c:hover { background: #f2f2f5; color: #222; }
+  .crumb .c.now { color: #2a2a2e; font-weight: 600; }
+  .hudSub .c.now { color: #6a6a6e; font-weight: 600; }
+  .crumb .sep2, .hudSub .sep2 { color: #cfcfd2; font-size: 11px; margin: 0 1px; }
+  .hudSub .sibLab, .hudSub .tag { color: #c9c9cf; }
+  .hudBack { display: none; font-family: inherit; font-size: 11px; color: #6a6a6e;
+    background: #fff; border: 1px solid #e0e0e4; border-radius: 999px;
+    padding: 3px 10px; cursor: pointer; letter-spacing: .06em; transition: all .2s; }
+  .hudBack.on { display: inline-block; }
+  .hudBack:hover { border-color: #b0b0b4; color: #222; }
+  .btns { position: fixed; right: 20px; bottom: 20px; display: flex; gap: 10px; }
+  button { font-family: inherit; font-size: 13px; color: #4a4a4e; background: #fff;
+    border: 1px solid #d8d8dc; border-radius: 10px; padding: 9px 16px; cursor: pointer;
+    transition: all .2s; }
+  button:hover { border-color: #9a9a9e; color: #222; }
+  button.primary { background: #2f2f33; color: #fff; border-color: #2f2f33; }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  .tip { position: fixed; left: 20px; bottom: 20px; font-size: 11px; color: #9a9a9e;
+    line-height: 1.9; user-select: none; pointer-events: none; }
+
+  .mask { position: fixed; inset: 0; background: rgba(255,255,255,.78);
+    backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center; z-index: 10; }
+  .mask.on { display: flex; }
+  .card { width: 520px; max-width: 92vw; background: #fff; border: 1px solid #e6e6e9;
+    border-radius: 18px; padding: 34px 38px 30px; box-shadow: 0 20px 60px rgba(0,0,0,.08); }
+  .card h2 { margin: 0 0 4px; font-family: "Songti SC","SimSun",serif; font-weight: 500;
+    font-size: 24px; color: #2a2a2e; letter-spacing: .12em; text-align: center; }
+  .card .sub { text-align: center; font-size: 12px; color: #a0a0a4; margin-bottom: 24px; letter-spacing: .1em; }
+  .step-t { font-size: 13px; color: #7a7a7e; margin: 18px 0 10px; }
+  .pick { display: flex; gap: 14px; }
+  .opt { flex: 1; border: 1px solid #e4e4e7; border-radius: 14px; padding: 16px 10px 12px;
+    text-align: center; cursor: pointer; transition: all .2s; background: #fff; }
+  .opt:hover { border-color: #b0b0b4; }
+  .opt.sel { border-color: #2f2f33; background: #fafafa; }
+  .opt svg { width: 56px; height: 72px; }
+  .opt .n { font-size: 12px; color: #6a6a6e; margin-top: 6px; }
+  .opt .d { font-size: 11px; color: #b0b0b4; margin-top: 2px; }
+  .chain { font-family: "Songti SC","SimSun",serif; font-size: 16px; color: #3a3a3e;
+    text-align: center; letter-spacing: .06em; min-height: 26px; margin: 6px 0 4px; }
+  .chain .sep { color: #cfcfd2; margin: 0 4px; }
+  .shake-info { font-size: 11px; color: #aaa; text-align: center; margin-bottom: 14px; }
+  .card .row { display: flex; gap: 10px; margin-top: 22px; }
+  .card .row button { flex: 1; padding: 11px; }
+
+  /* 我的命星：悬浮时才展开的籍贯小牌 + 转到画面外时的边缘小箭头 */
+  .metip { position: fixed; display: none; pointer-events: none; z-index: 6;
+    transform: translate(16px, -50%); white-space: nowrap;
+    background: rgba(255,255,255,.92); border: 1px solid #e8e8ea; border-radius: 999px;
+    padding: 5px 14px; font-family: "Songti SC", "SimSun", serif; font-size: 12px;
+    letter-spacing: .06em; color: #6a6a6e; box-shadow: 0 6px 18px rgba(0,0,0,.05); }
+  .metip.on { display: block; }
+  #meArrow { position: fixed; display: none; cursor: pointer; z-index: 6;
+    width: 16px; height: 18px; background: #f2705f;
+    clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+
+  /* 摇签：签筒抖起来，地名跟着飞快翻 */
+  @keyframes shake {
+    0%   { transform: rotate(0deg) translateX(0); }
+    18%  { transform: rotate(-1.4deg) translateX(-5px); }
+    36%  { transform: rotate(1.2deg) translateX(5px); }
+    54%  { transform: rotate(-.9deg) translateX(-3px); }
+    72%  { transform: rotate(.6deg) translateX(3px); }
+    100% { transform: rotate(0deg) translateX(0); }
+  }
+  /* 抖 3 个来回（.43s×3 ≈ 1.29s）正好铺满整段翻名过程，收尾时自己回到水平 */
+  .card.shake { animation: shake .43s ease-in-out 3; }
+
+  /* 近观时的小卡：移到某一层圆饼 / 移到小人 时浮出 */
+  .tcard { position: fixed; display: none; pointer-events: none; z-index: 6;
+    transform: translate(18px, -50%); min-width: 190px; max-width: 290px;
+    background: rgba(255,255,255,.94); border: 1px solid #e8e8ea; border-radius: 14px;
+    padding: 11px 15px; box-shadow: 0 10px 30px rgba(0,0,0,.07); }
+  .tcard.on { display: block; }
+  /* 悬浮的是塔顶那两层、或塔顶的小人时，卡片改从光标下方展开 —— 不然它会盖住小人和旗帜 */
+  .tcard.below { transform: translate(18px, 16px); }
+  .tcard .t1 { font-family: "Songti SC", "SimSun", serif; font-size: 14px; color: #3a3a3e;
+    letter-spacing: .06em; }
+  .tcard .t2 { font-size: 11px; color: #9a9a9e; margin-top: 4px; letter-spacing: .04em; }
+  .tcard .act { font-size: 11px; margin-top: 9px; color: #e2695c; letter-spacing: .06em; }
+  .tcard .act.done { color: #b8b8bd; }
+  .tcard .who { display: flex; align-items: center; gap: 11px; }
+  .tcard .who svg { width: 30px; height: 40px; flex: none; }
+</style>
 </head>
 <body>
-  <h1>测试成功！</h1>
-  <p>这是test2仓库的GitHub Pages页面</p>
+
+<div class="hud" id="hud">
+  <div class="hudLine">
+    <span class="crumb" id="crumb"></span>
+    <button id="btnBack" class="hudBack" title="回到刚才那个视野">↩ 回到刚才</button>
+  </div>
+  <div class="hudSub" id="hudSub"></div>
+</div>
+<div class="tip">
+  CHANGZAI 常在 · 常世概念小样<br/>
+  滚轮缩放：洲 → 域 → 州 → 城 → 坊 → 里（暖色光痕 = 人烟稠密处）<br/>
+  左键旋转 · 右键平移　落籍后，头顶那颗自转的「命星」就是你自己
+</div>
+<div class="btns">
+  <button id="btnFar">俯瞰常世</button>
+  <button id="btnHome" disabled>回到我的里</button>
+  <button id="btnBorn" class="primary">摇签降生</button>
+</div>
+<div class="metip" id="meTip"></div>
+<div class="tcard" id="tcard"></div>
+<div id="meArrow" title="回到我的里"></div>
+
+<div class="mask" id="mask">
+  <div class="card">
+    <h2>降 生 常 世</h2>
+    <div class="sub">选一副形容，择一方水土，落籍后永不可改</div>
+
+    <div class="step-t">一、选你的形容（仅形象，不问性别）</div>
+    <div class="pick" id="avatarPick">
+      <div class="opt sel" data-v="1">
+        <svg viewBox="0 0 56 72" fill="none" stroke="#8a8a8f" stroke-width="1.4">
+          <circle cx="28" cy="13" r="8"/><path d="M28 22v20M28 28l-11 8M28 28l11 8M28 42l-9 22M28 42l9 22"/>
+        </svg>
+        <div class="n">形容一</div><div class="d">短发 · 裤装</div>
+      </div>
+      <div class="opt" data-v="2">
+        <svg viewBox="0 0 56 72" fill="none" stroke="#8a8a8f" stroke-width="1.4">
+          <circle cx="28" cy="13" r="8"/><path d="M21 10c-2 8-1 16 2 20M35 10c2 8 1 16-2 20"/>
+          <path d="M28 22v14M28 28l-11 8M28 28l11 8M20 36l8 8 8-8M22 44l-6 20M34 44l6 20"/>
+        </svg>
+        <div class="n">形容二</div><div class="d">长发 · 裙装</div>
+      </div>
+    </div>
+
+    <div class="step-t">二、心向哪一洲</div>
+    <div class="pick" id="contPick"></div>
+
+    <div class="step-t">三、摇签落籍（可摇三次，听天由命）</div>
+    <div class="chain" id="chain">尚未摇签……</div>
+    <div class="shake-info" id="shakeInfo">剩余摇签次数：3</div>
+    <div class="row">
+      <button id="btnShake">摇 签</button>
+      <button id="btnConfirm" class="primary" disabled>就落此处</button>
+      <button id="btnCancel">再想想</button>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ============ 确定性随机 ============ */
+function hashStr(s){let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+function rng(seed){let a=seed>>>0;return ()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+
+/* ============ 常世地名（山水诗意字库） ============ */
+const CONTINENTS = ['云渺洲','听澜洲','栖梧洲','望舒洲'];
+const POOL = {
+  1: ['青阳','朱明','素商','玄朔','碧落','丹霞','沧溟','昆丘'],
+  2: ['白驹','渡鹤','栖霞','临渊','揽月','听雨','望云','采菊'],
+  3: ['映雪','拂霜','观澜','拾光','煮茶','问梅','抚松','枕流'],
+  4: ['折梅','采苓','寻芷','慕兰','种竹','踏莎','采薇','纫兰'],
+  5: ['松风','竹喧','荷风','桂雨','桃夭','柳烟','兰若','苔痕']
+};
+const SUF = { 1:'域', 2:'州', 3:'城', 4:'坊', 5:'里' };
+const KIDS = { 0:2, 1:2, 2:2, 3:2, 4:3 };
+
+/* 区域世界半径（自底而上按"装得下子区域"几何推导，保证互不重叠）：
+   里9.5（塔外环≈3.7+卫星）< 坊22 < 城45 < 州92 < 域186 < 洲380 */
+const REGION_R = [380, 186, 92, 45, 22, 9.5];
+const CONT_CENTER_R = 560; // 四洲中心所在圆半径（560*√2 > 2*380，洲不相交）
+
+/* 里内最多 3 人，三个固定槽位（等边三角），槽间距 7.96 > 两座塔外缘 */
+const SLOTS = [ new THREE.Vector3(0,0,4.6), new THREE.Vector3(-3.98,0,-2.3), new THREE.Vector3(3.98,0,-2.3) ];
+
+/* ============ 生成行政区划树 ============ */
+const regionsByLevel = [[],[],[],[],[],[]];
+const users = [];
+function build(){
+  CONTINENTS.forEach((cn, ci)=>{
+    const ang = ci/4*Math.PI*2 + Math.PI/4;
+    const root = { level:0, name:cn, seed:hashStr(cn), userCount:0,
+      center:new THREE.Vector3(Math.cos(ang)*CONT_CENTER_R,0,Math.sin(ang)*CONT_CENTER_R),
+      r:REGION_R[0], parent:null, children:[] };
+    regionsByLevel[0].push(root);
+    gen(root, 0);
+  });
+}
+function gen(p, depth){
+  if(depth === 5){ spawnUsers(p); return; }
+  const n = KIDS[depth], rr = rng(p.seed + depth*97);
+  // 本轮分裂的朝向：由父区域种子决定，让子区域朝各个方向散开
+  // （若固定沿 X 轴，整棵子树会排成一条直线，俯瞰就是"一行一行"）
+  const baseAng = rng(p.seed + depth*131)() * Math.PI * 2;
+  for(let i=0;i<n;i++){
+    const pool = POOL[depth+1], name = pool[Math.floor(rr()*pool.length)] + SUF[depth+1];
+    const cR = REGION_R[depth+1];
+    // 子区域位置：2 个对径、3 个等边三角；整体按 baseAng 旋转，仍互不重叠
+    let ox=0, oz=0;
+    if(n===2){
+      const a = baseAng + (i===0 ? 0 : Math.PI);
+      ox = Math.cos(a)*(p.r-cR); oz = Math.sin(a)*(p.r-cR);
+    } else {
+      const a = baseAng + i/3*Math.PI*2 + (rr()-0.5)*0.4;
+      const rad = cR*2/Math.sqrt(3)*1.04;
+      ox = Math.cos(a)*rad; oz = Math.sin(a)*rad;
+    }
+    const node = { level:depth+1, name, seed:hashStr(p.name+'/'+name+i), userCount:0,
+      center:new THREE.Vector3(p.center.x+ox,0,p.center.z+oz),
+      r:cR, parent:p, children:[] };
+    p.children.push(node); regionsByLevel[depth+1].push(node);
+    gen(node, depth+1);
+  }
+}
+/* 演示基准日（今天是 2026-10-16）。每座塔都得有"哪一天"的实感：
+   由活力反推"最近一次发布距今几天"（活力公式：0天=1.0、1~7天=1-d/7），
+   再往前倒推 layers 天得到落籍日 —— 于是第 i 层圆饼就对应确切的一天。 */
+const DAY_MS=86400000, TODAY=Date.UTC(2026,9,16);
+function spawnUsers(leaf){
+  const rr = rng(leaf.seed ^ 0x55aa);
+  const n = 1 + Math.floor(rr()*3);
+  for(let i=0;i<n;i++){
+    const u = {
+      // id 必须全局唯一：里名取自 8 个字的字库，全星 192 个里必然重名，
+      // 若用"里名#序号"当 id，towerCache 会把不同的人当成同一个人，
+      // 只立起一座塔、其余的人永远只是圆点（"有点点了还是不显示"）
+      id: 'u'+users.length,
+      pos: leaf.center.clone().add(SLOTS[i]),
+      hue: rr(), vitality: 0.25+rr()*0.75,
+      layers: 2+Math.floor(rr()*6), avatar: rr()<0.5?1:2,
+      satByTier: Array.from({length:8},()=> rr()<0.35?1+Math.floor(rr()*3):0)
+    };
+    u.leafName = leaf.name;
+    u.chain = chainOf(leaf);
+    const dd = Math.round((1-u.vitality)*7);              // 最近一次距今几天
+    u.lastDate = TODAY - dd*DAY_MS;
+    u.startDate = TODAY - (dd + u.layers - 1)*DAY_MS;
+    users.push(u);
+    for(let p=leaf; p; p=p.parent) p.userCount++;
+  }
+}
+build();
+
+/* ============ 场景 ============ */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xffffff);
+scene.fog = new THREE.Fog(0xffffff, 1500, 2700); // 只柔化星球尽头
+const camera = new THREE.PerspectiveCamera(34, innerWidth/innerHeight, 0.1, 6000);
+camera.position.set(300, 520, 640);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.screenSpacePanning = true;
+controls.maxPolarAngle = Math.PI*0.495;
+controls.minDistance = 10; controls.maxDistance = 2000;
+controls.target.set(0,0,0);
+controls.mouseButtons = { LEFT:THREE.MOUSE.ROTATE, MIDDLE:THREE.MOUSE.ROTATE, RIGHT:THREE.MOUSE.PAN };
+controls.update();
+
+/* 方格地面 */
+(function ground(){
+  const R=1200, STEP=22, pos=[], col=[];
+  const NEAR=new THREE.Color('#e6e6e2'), FAR=new THREE.Color('#ffffff'), c=new THREE.Color();
+  const add=(x1,z1,x2,z2)=>{const f=(x,z)=>{const d=Math.min(Math.hypot(x,z)/R,1);c.copy(NEAR).lerp(FAR,Math.pow(d,1.1));return [c.r,c.g,c.b];};
+    const a=f(x1,z1),b=f(x2,z2); pos.push(x1,0,z1,x2,0,z2); col.push(...a,...b);};
+  for(let i=-R;i<=R;i+=STEP){ for(let x=-R;x<R;x+=STEP) add(x,i,x+STEP,i); for(let z=-R;z<R;z+=STEP) add(i,z,i,z+STEP); }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  scene.add(new THREE.LineSegments(g,new THREE.LineBasicMaterial({vertexColors:true,transparent:true})));
+})();
+
+/* ============ 地名：宋体灰字平贴大地 ============ */
+const FAM='"Songti SC","STSong","SimSun","Noto Serif SC",serif';
+const LABEL_W   = [240, 90, 44, 22, 11, 5];
+const LABEL_CLR = ['#dcdce1','#c9c9cf','#b7b7bd','#a7a7ad','#98989e','#8a8a90'];
+const SCREEN_GAP= [260, 180, 130, 96, 72, 58];
+function makeGroundLabel(text, width, color){
+  const fs=96,pad=44;
+  const m=document.createElement('canvas').getContext('2d');
+  m.font=`300 ${fs}px ${FAM}`;
+  const w=Math.ceil(m.measureText(text).width)+pad*2, h=fs+pad*2;
+  const cvs=document.createElement('canvas'); cvs.width=w*2; cvs.height=h*2;
+  const ctx=cvs.getContext('2d'); ctx.scale(2,2);
+  ctx.font=`300 ${fs}px ${FAM}`; ctx.fillStyle=color;
+  ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText(text,w/2,h/2);
+  const geo=new THREE.PlaneGeometry(width, width*h/w);
+  geo.rotateX(-Math.PI/2);
+  const mesh=new THREE.Mesh(geo,new THREE.MeshBasicMaterial({
+    map:new THREE.CanvasTexture(cvs), transparent:true, depthWrite:false, opacity:0 }));
+  mesh.position.y=0.06; mesh.userData.targetOp=0;
+  return mesh;
+}
+regionsByLevel.forEach((arr,lv)=>arr.forEach(rg=>{
+  const mesh=makeGroundLabel(rg.name, LABEL_W[lv], LABEL_CLR[lv]);
+  mesh.position.x=rg.center.x; mesh.position.z=rg.center.z;
+  rg.label=mesh; scene.add(mesh);
+}));
+
+const _pv=new THREE.Vector3();
+function updateLabels(){
+  const vis=LODS[curLod].labels, cands=[];
+  regionsByLevel.forEach((arr,lv)=>{ if(vis[lv]) arr.forEach(rg=>cands.push(rg)); });
+  cands.sort((a,b)=>a.level-b.level);
+  const placed=[], fovTan=Math.tan(camera.fov*Math.PI/360);
+  for(const rg of cands){
+    _pv.copy(rg.label.position); _pv.project(camera);
+    let op=0;
+    if(_pv.z>-1 && _pv.z<1){
+      const sx=(_pv.x*.5+.5)*innerWidth, sy=(-_pv.y*.5+.5)*innerHeight;
+      if(sx>-300 && sx<innerWidth+300 && sy>-300 && sy<innerHeight+300){
+        const dist=Math.max(1, camera.position.distanceTo(rg.label.position));
+        const screenW=LABEL_W[rg.level]/dist*(innerHeight/2)/fovTan;
+        if(screenW>=28 && screenW<innerWidth*.5){ // 太远是芝麻不显示；压太近淡出让位
+          const gap=SCREEN_GAP[rg.level];
+          let crowded=false;
+          for(const p of placed){ const dx=sx-p.x, dy=sy-p.y; if(dx*dx+dy*dy<gap*gap){crowded=true;break;} }
+          if(!crowded){ op=1; placed.push({x:sx,y:sy}); }
+        } else if(screenW>=innerWidth*.5){
+          op=Math.max(0,1-(screenW-innerWidth*.5)/(innerWidth*.3));
+        }
+      }
+    }
+    rg.label.userData.targetOp=op;
+    // 悬浮导航条上的地名时，那一级的字先亮起来 —— 预览"点它会去哪"
+    const hl=(rg===hoverRegion);
+    rg.label.material.color.set(hl?0xc2c2c9:0xffffff);
+    rg.label.scale.setScalar(hl?1.08:1);
+  }
+}
+
+/* ============ 人烟热力：城级聚合成柔和光痕（只显密度，不涉个人） ============ */
+function heatTexture(){
+  const c=document.createElement('canvas'); c.width=c.height=256;
+  const x=c.getContext('2d');
+  // 注意：贴图必须是白色渐变——材质会把"贴图颜色 × 材质颜色"相乘，
+  // 贴图若是黑色，任何颜色都会被乘成黑色（热力会变成灰块）
+  const g=x.createRadialGradient(128,128,4,128,128,128);
+  g.addColorStop(0,'rgba(255,255,255,0.92)'); g.addColorStop(.5,'rgba(255,255,255,0.30)'); g.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=g; x.fillRect(0,0,256,256);
+  return new THREE.CanvasTexture(c);
+}
+const heatTex=heatTexture();
+const HEAT_COOL=new THREE.Color('#e6e6ee'), HEAT_WARM=new THREE.Color('#ff9280');
+const heatSprites=[];
+/* 多级叠加热力：域（大而极淡）铺出大陆底色 → 州（中）过渡 → 城（小而亮）成峰。
+   三级光斑半径都大于同级区域间距，彼此重叠连成"一片一片"，而不是一排离散点 */
+[
+  { lv:1, rBase:160, rSpan:60, op:0.055 },
+  { lv:2, rBase:85,  rSpan:55, op:0.10  },
+  { lv:3, rBase:70,  rSpan:60, op:0.17  }
+].forEach(cfg=>{
+  const arr=regionsByLevel[cfg.lv];
+  const counts=arr.map(c=>c.userCount);
+  const cmin=Math.min(...counts), cmax=Math.max(...counts);
+  arr.forEach(rg=>{
+    const dens=(rg.userCount-cmin)/Math.max(1,cmax-cmin);
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:heatTex,transparent:true,depthWrite:false,opacity:0}));
+    sp.material.color.copy(HEAT_COOL).lerp(HEAT_WARM,dens);
+    const r=cfg.rBase+dens*cfg.rSpan;
+    sp.scale.set(r*2,r*2,1);
+    // 确定性随机微偏移，打散规则树布局带来的行列感
+    const jr=rng(rg.seed ^ 0x9e37);
+    sp.position.set(rg.center.x+(jr()-0.5)*rg.r*0.24, 0.4, rg.center.z+(jr()-0.5)*rg.r*0.24);
+    sp.userData.targetOp=0; sp.userData.op=cfg.op*(0.7+dens*0.6); sp.userData.lv=cfg.lv;
+    heatSprites.push(sp); scene.add(sp);
+  });
+});
+
+/* ============ 个人光点：缩小后的"印记"小点 ============
+   参考图给的是"一个柔和小圆核 + 一圈圈向外淡去的涟漪"。
+   做成这样而不是一颗实心圆点，是为了和点赞生成的卫星（棱角分明的小晶体）
+   一眼就能区分开：涟漪 = 一个人的印记，晶体 = 一次点赞。
+   注意：贴图必须全部是白色——材质会把"贴图色 × 用户终身色"相乘。 */
+function dotTexture(){
+  const S=128, c=document.createElement('canvas'); c.width=c.height=S;
+  const x=c.getContext('2d'), h=S/2;
+  // 最外层柔和光晕（涟漪向外淡去）
+  const halo=x.createRadialGradient(h,h,S*0.02,h,h,S*0.5);
+  halo.addColorStop(0,'rgba(255,255,255,0.66)');
+  halo.addColorStop(0.34,'rgba(255,255,255,0.24)');
+  halo.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=halo; x.beginPath(); x.arc(h,h,S*0.5,0,Math.PI*2); x.fill();
+  // 两圈淡环，越外越淡
+  x.strokeStyle='rgba(255,255,255,0.78)'; x.lineWidth=S*0.030;
+  x.beginPath(); x.arc(h,h,S*0.33,0,Math.PI*2); x.stroke();
+  x.strokeStyle='rgba(255,255,255,0.44)'; x.lineWidth=S*0.024;
+  x.beginPath(); x.arc(h,h,S*0.47,0,Math.PI*2); x.stroke();
+  // 中心亮核（带一点由上到下的柔光，像参考图里那颗小圆核）
+  const core=x.createRadialGradient(h,h*0.86,S*0.01,h,h,S*0.23);
+  core.addColorStop(0,'rgba(255,255,255,1)');
+  core.addColorStop(0.55,'rgba(255,255,255,0.98)');
+  core.addColorStop(1,'rgba(255,255,255,0.36)');
+  x.fillStyle=core; x.beginPath(); x.arc(h,h,S*0.23,0,Math.PI*2); x.fill();
+  return new THREE.CanvasTexture(c);
+}
+const dotTex=dotTexture();
+let userPts=null;
+function rebuildPts(){
+  if(userPts){ scene.remove(userPts); userPts.geometry.dispose(); userPts.material.dispose(); }
+  const pos=[], col=[], grey=new THREE.Color('#d4d4d6');
+  users.forEach(u=>{
+    pos.push(u.pos.x,1.0,u.pos.z);
+    const c=new THREE.Color().setHSL(u.hue,0.72,0.5).lerp(grey,1-Math.max(u.vitality,0.06));
+    col.push(c.r,c.g,c.b);
+  });
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  userPts=new THREE.Points(g,new THREE.PointsMaterial({size:3.6,map:dotTex,vertexColors:true,transparent:true,opacity:0,depthWrite:false}));
+  userPts.userData.targetOp=0;
+  scene.add(userPts);
+}
+rebuildPts();
+
+/* ============ 近看：完整光环塔（与定稿 style-preview 同一套） ============ */
+const DORMANT=new THREE.Color('#d4d4d6'), LINE_GREY='#b4b4b8';
+const PEG_R=.95, SEG=160;
+const TIER_START_Y=.62, TIER_DY=.56, R_INNER=1.3, R_STEP=.34, R_GAP=.34;
+const tierY=i=>TIER_START_Y+(i-1)*TIER_DY;
+const tierOuter=i=>R_INNER+(i-1)*R_STEP;
+const pegHeight=n=>tierY(n);
+function ringPoints(r){const pts=[];for(let s=0;s<SEG;s++){const a=s/SEG*Math.PI*2;pts.push(new THREE.Vector3(Math.cos(a)*r,Math.sin(a)*r,0));}return pts;}
+function hash01(...xs){let h=2166136261;for(const v of xs){h^=Math.round(v*1000)+v;h=Math.imul(h,16777619);}return((h>>>0)%100000)/100000;}
+function whitePart(geo,opacity=.8){
+  const wrap=new THREE.Group();
+  wrap.add(new THREE.Mesh(geo,new THREE.MeshBasicMaterial({color:0xffffff})));
+  wrap.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo,15),
+    new THREE.LineBasicMaterial({color:LINE_GREY,transparent:true,opacity})));
+  return wrap;
+}
+function makePegStack(n,h){
+  const g=new THREE.Group(); const bounds=[0];
+  const slices=[];                       // 记下每一层的圆饼与它的边线，供悬浮高亮用
+  for(let i=1;i<n;i++) bounds.push((tierY(i)+tierY(i+1))/2);
+  bounds.push(h);
+  for(let i=0;i<n;i++){
+    const y0=bounds[i],y1=bounds[i+1],sh=Math.max(.12,y1-y0);
+    const cyl=new THREE.Mesh(new THREE.CylinderGeometry(PEG_R,PEG_R,sh,48),new THREE.MeshBasicMaterial({color:0xffffff}));
+    cyl.position.y=(y0+y1)/2; cyl.userData.tier=i+1; g.add(cyl);
+    const edges=new THREE.LineSegments(new THREE.EdgesGeometry(cyl.geometry,12),
+      new THREE.LineBasicMaterial({color:LINE_GREY,transparent:true,opacity:.8}));
+    edges.position.y=(y0+y1)/2; edges.userData.tier=i+1; g.add(edges);
+    // 看不见的"手感"命中体：圆饼是薄横切片，鼠标很难正好落在它上面。
+    // 每层再套一个更粗的透明圆柱，只参与射线检测 —— 显示上完全看不出来，但"抓得住"这一层。
+    const grab=new THREE.Mesh(new THREE.CylinderGeometry(PEG_R*1.55,PEG_R*1.55,sh,12),
+      new THREE.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false}));
+    grab.position.y=(y0+y1)/2; grab.userData.tier=i+1; g.add(grab);
+    // 每层记下"原样"：悬浮时只改目标值，由主循环逐帧 lerp —— 变色于是有了过渡，不再"啪"一下
+    for(const m of [cyl.material, edges.material]){ m.userData.tar=m.color.clone(); m.userData.tarOp=m.opacity; }
+    for(const s of [cyl,edges]){ s.userData.tarY0=s.position.y; s.userData.tarY=s.position.y; }
+    slices.push(cyl,edges);            // 命中体不进 slices：高亮只动看得见的饼和边线
+  }
+  g.userData.slices=slices;
+  return g;
+}
+/* 旗面上的字：平时是「在」；别人为你添了一颗星，它会短暂化成「谢」字 */
+function setFlagText(fig,ch){
+  const {flagCvs,flagCtx}=fig;
+  flagCtx.clearRect(0,0,flagCvs.width,flagCvs.height);
+  flagCtx.strokeStyle='#fff'; flagCtx.lineWidth=12; flagCtx.strokeRect(10,10,236,148);
+  flagCtx.fillStyle='#fff'; flagCtx.font='bold 96px "Songti SC","SimSun",serif';
+  flagCtx.textAlign='center'; flagCtx.textBaseline='middle'; flagCtx.fillText(ch,128,88);
+  fig.flagMat.map.needsUpdate=true;
+}
+function makeFigure(style=1){
+  const g=new THREE.Group(); g.userData.isFigure=true; let legL,legR;
+  if(style===2){
+    const skirt=whitePart(new THREE.CylinderGeometry(.085,.19,.3,14),.75); skirt.position.y=.15; g.add(skirt);
+  } else {
+    legL=whitePart(new THREE.CylinderGeometry(.05,.05,.28,10),.7); legL.position.set(-.075,.14,0);
+    legR=whitePart(new THREE.CylinderGeometry(.05,.05,.28,10),.7); legR.position.set(.075,.14,0);
+    g.add(legL,legR);
+  }
+  const torso=whitePart(new THREE.CapsuleGeometry(.11,.2,4,12),.8); torso.position.y=.47;
+  const head=whitePart(new THREE.SphereGeometry(.135,18,14),.8); head.position.y=.75;
+  let hair=null;
+  if(style===2){ hair=whitePart(new THREE.CapsuleGeometry(.085,.2,4,12),.75); hair.position.set(0,.6,.075); g.add(hair); }
+  const armHold=whitePart(new THREE.CylinderGeometry(.04,.04,.26,8),.7);
+  armHold.position.set(.14,.52,0); armHold.rotation.z=-Math.PI/3.2;
+  const wavePivot=new THREE.Group(); wavePivot.position.set(-.1,.6,0);
+  const armWave=whitePart(new THREE.CylinderGeometry(.04,.04,.26,8),.7); armWave.position.y=.13;
+  wavePivot.add(armWave); wavePivot.rotation.z=.7;
+  const pole=whitePart(new THREE.CylinderGeometry(.022,.022,1.15,8),.9); pole.position.set(.3,.575,0);
+  g.add(torso,head,armHold,wavePivot,pole);
+  const cvs=document.createElement('canvas'); cvs.width=256; cvs.height=168;
+  const ctx=cvs.getContext('2d');
+  const flagGeo=new THREE.PlaneGeometry(.66,.43,18,3);
+  const flagBase=flagGeo.attributes.position.array.slice();
+  const flagMat=new THREE.MeshBasicMaterial({map:new THREE.CanvasTexture(cvs),transparent:true,side:THREE.DoubleSide,depthWrite:false});
+  const flag=new THREE.Mesh(flagGeo,flagMat); flag.position.set(.64,.99,0); g.add(flag);
+  const fig={group:g,wavePivot,flagGeo,flagBase,flagMat,flagCvs:cvs,flagCtx:ctx};
+  setFlagText(fig,'在');
+  return fig;
+}
+function makePoint({x,z,uid,hue,vitality,layers,satByTier,avatarStyle=1}){
+  const g=new THREE.Group(); g.position.set(x,0,z); g.visible=false; g.userData.uid=uid; scene.add(g);
+  const pegH=pegHeight(layers);
+  const peg=makePegStack(layers,pegH); g.add(peg);
+  const figure=makeFigure(avatarStyle); figure.group.position.y=pegH; g.add(figure.group);
+  const shadow=new THREE.Mesh(new THREE.CircleGeometry(tierOuter(layers)+1,48),
+    new THREE.MeshBasicMaterial({color:0x8a8a80,transparent:true,opacity:.06,depthWrite:false}));
+  shadow.rotation.x=-Math.PI/2; shadow.position.y=.005; g.add(shadow);
+  const vivid=new THREE.Color().setHSL(hue,.82,.52);
+  const rings=[];
+  for(let tier=1;tier<=layers;tier++){
+    const ty=tierY(tier);
+    const tierV=Math.max(.05,Math.min(1,vitality-(layers-tier)*.09));
+    const tierColor=new THREE.Color().setHSL((hue+(tier-1)*.075)%1,.82,.5+(tier%2)*.04);
+    const c=DORMANT.clone().lerp(tierColor,tierV);
+    for(let j=0;j<tier;j++){
+      const r=tierOuter(tier)-j*R_GAP;
+      const wrap=new THREE.Group(); wrap.position.y=ty;
+      const mat=new THREE.LineBasicMaterial({color:c,transparent:true,opacity:.12+.85*tierV});
+      const ring=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ringPoints(r)),mat);
+      ring.rotation.x=-Math.PI/2; wrap.add(ring); g.add(wrap);
+      rings.push({wrap,mat,v:tierV,tier,phase:Math.random()*Math.PI*2,speed:.7+Math.random()*.7});
+    }
+  }
+  const orbiters=[], orbitTiers=new Set();
+  (satByTier||[]).forEach((count,idx)=>{
+    const tier=idx+1;
+    if(!count||tier>layers) return;
+    const or=tierOuter(tier)+.5, oy=tierY(tier)+.1;
+    const orbit=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ringPoints(or)),
+      new THREE.LineBasicMaterial({color:0xc9c9cc,transparent:true,opacity:.35}));
+    orbit.rotation.x=-Math.PI/2; orbit.position.y=oy; g.add(orbit);
+    orbitTiers.add(tier);
+    for(let i=0;i<count;i++){
+      const likerHue=(hash01(x,z,tier,i)*.92+.02)%1;
+      // 卫星做成棱角分明的小晶体（八面体），与缩小后那颗圆润的"涟漪印记"
+      // 一眼就能区分：涟漪是一个人，晶体是一次点赞
+      const sat=new THREE.Group();
+      const satGeo=new THREE.OctahedronGeometry(.13,0);
+      sat.add(new THREE.Mesh(satGeo,new THREE.MeshBasicMaterial({color:new THREE.Color().setHSL(likerHue,.7,.5)})));
+      sat.add(new THREE.LineSegments(new THREE.EdgesGeometry(satGeo),
+        new THREE.LineBasicMaterial({color:new THREE.Color().setHSL(likerHue,.5,.8),transparent:true,opacity:.9})));
+      const a=(i/count)*Math.PI*2+hash01(i,tier)*.4;
+      sat.position.set(Math.cos(a)*or,oy,Math.sin(a)*or); g.add(sat);
+      orbiters.push({dot:sat,a,y:oy,r:or,tier,idx:i,
+        speed:(.08+hash01(tier,i,9)*.12)*(hash01(i,tier,3)<.5?1:-1)});
+    }
+  });
+  return {group:g,rings,orbiters,orbitTiers,vitality,figure,vivid,layers,slices:peg.userData.slices};
+}
+const towerCache=new Map();
+/* 塔的显隐：按"相机到该光点本身"的距离判定，并且每帧重算。
+   两个坑：
+   1) 不能用"相机到 controls.target"的距离——滚轮缩放时 target 停在原地不动，
+      而离世界中心最近的人也有一百多单位远，那样判定永远不会成立，就只剩圆点了。
+   2) 阈值不能写死。写死 60 世界单位的话，屏幕上明明看得见、只是稍远一点的邻居，
+      就永远只是圆点（"有点点了还是不显示"就是这个原因）。改为随镜头远近自适应：
+      镜头离轨道中心 d0，能立塔的范围就按 d0 放大，这样当前视野里那片区域的人都会立成塔。
+   另外：洲/域/州 级太宏观不立塔；同时最多渲染 16 座，保证性能。 */
+const MAX_TOWERS=16;
+function updateTowers(){
+  if(curLod<4){ towerCache.forEach(tw=>{ tw.group.visible=false; }); return; }
+  const d0=camera.position.distanceTo(controls.target);
+  const TOWER_ON=d0*2.4+60, TOWER_OFF=TOWER_ON*1.7;
+  const cands=[];
+  for(const u of users){
+    const dc=camera.position.distanceTo(u.pos);
+    const has=towerCache.has(u.id);
+    if(dc < (has ? TOWER_OFF : TOWER_ON)) cands.push({u,dc});
+  }
+  // 优先立"镜头里看得见"的点，其次才按远近：这样 16 个名额只会裁掉屏幕外的点，
+  // 屏幕里看得见的人不会因为名额被占满而只剩一个圆点
+  for(const c of cands){
+    _pv.copy(c.u.pos).project(camera);
+    c.off = (_pv.z>-1 && _pv.z<1 && Math.abs(_pv.x)<1.15 && Math.abs(_pv.y)<1.15) ? 0 : 1;
+  }
+  cands.sort((a,b)=> a.off-b.off || a.dc-b.dc); // 先屏幕内的，再近的
+  const keep=new Set();
+  for(const {u} of cands.slice(0,MAX_TOWERS)){
+    let tw=towerCache.get(u.id);
+    if(!tw){
+      tw=makePoint({uid:u.id, x:u.pos.x,z:u.pos.z,hue:u.hue,vitality:u.vitality,
+        layers:u.layers,satByTier:u.satByTier,avatarStyle:u.avatar});
+      towerCache.set(u.id,tw);
+    }
+    tw.group.visible=true;
+    keep.add(u.id);
+  }
+  towerCache.forEach((tw,id)=>{ if(!keep.has(id)) tw.group.visible=false; });
+}
+
+/* ============ LOD ============ */
+const LODS=[
+  { name:'常世 · 四洲', sub:'云渺 · 听澜 · 栖梧 · 望舒', labels:[1,1,1,0,0,0], pts:0,   heat:[1,2] },
+  { name:'域',  sub:'万域生光',       labels:[1,1,1,0,0,0], pts:0,   heat:[1,2,3] },
+  { name:'州',  sub:'',              labels:[0,1,1,1,0,0], pts:0,   heat:[2,3] },
+  { name:'城',  sub:'点点灯火开始显现', labels:[0,0,1,1,1,0], pts:.9, heat:[3] },
+  { name:'坊',  sub:'',              labels:[0,0,0,1,1,1], pts:1,   heat:[] },
+  { name:'里',  sub:'每一座塔，都是一个「在」的人', labels:[0,0,0,0,1,1], pts:.5, heat:[] }
+];
+function lodOf(d){ if(d>900)return 0; if(d>500)return 1; if(d>260)return 2; if(d>140)return 3; if(d>72)return 4; return 5; }
+let curLod=-1;
+function applyLod(L){
+  // 只负责"这一级该把光点放大到几分"；顶部那些地名交给导航条 renderNav 去写
+  if(L===curLod) return; curLod=L;
+  userPts.userData.targetOp=LODS[L].pts;
+}
+
+/* ============ 顶部地名导航条（可点） ============
+   把"现在看到哪一级、这一级叫什么、上一级叫什么"直接做成可点的导航：
+   面包屑（常世 › 洲 › 域 › 州 › 城 › 坊 › 里）+ 同级切换 + 返回上一个视野。
+   点任意一个地名，镜头就按"该级的标准观看距离"飞过去；鼠标停在地名上，地上的字先亮起来
+   （预览"点它会去哪"）。面包屑跟着镜头走 —— 镜头移到哪片区域，它就报哪一片的地址。 */
+/* 视野历史：每飞一次，就把"飞之前在哪"记一笔；「↩ 回到刚才」就能原路退回。最多 12 步。 */
+const viewStack=[];
+function updateBackBtn(){ const b=document.getElementById('btnBack'); if(b) b.classList.toggle('on', viewStack.length>0); }
+const STD_DIST=[1000,700,400,200,110,46];   // 每一级的"标准观看距离"（正好落进对应的 LOD 区间）
+function standardFlyTo(center, level, dur=1.7){
+  const dist=STD_DIST[THREE.MathUtils.clamp(level,0,5)|0];
+  // 保持当前的水平朝向，只把"俯看的角度"固定成 28° —— 连点几个地名时方向不会乱转
+  const dir=camera.position.clone().sub(controls.target); dir.y=0;
+  if(dir.lengthSq()<1e-6) dir.set(0,0,1);
+  dir.normalize();
+  const el=28*Math.PI/180;
+  const off=new THREE.Vector3(dir.x*Math.cos(el), Math.sin(el), dir.z*Math.cos(el)).multiplyScalar(dist);
+  flyTo(center.clone().add(off), center.clone(), dur);
+}
+function nearestLeaf(p){
+  const arr=regionsByLevel[5]; let best=null, bd=1e9;
+  for(const rg of arr){ const dx=rg.center.x-p.x, dz=rg.center.z-p.z, d=dx*dx+dz*dz;
+    if(d<bd){ bd=d; best=rg; } }
+  return best;
+}
+function chainObjs(leaf){ const out=[]; let p=leaf; while(p){ out.unshift(p); p=p.parent; } return out; } // [洲…里]
+function siblingsOf(objs,lv){ return lv===0 ? regionsByLevel[0] : (objs[lv].parent ? objs[lv].parent.children : [objs[lv]]); }
+let hoverRegion=null;                        // 导航条上悬停的那一级 → 地上对应的字亮起来
+function navSep(txt){ const s=document.createElement('span'); s.className='sep2'; s.textContent=txt; return s; }
+function nameSpan(rg,isNow){
+  const s=document.createElement('span');
+  s.className='c'+(isNow?' now':''); s.textContent=rg.name;
+  s.onmouseenter=()=>{ hoverRegion=rg; };
+  s.onmouseleave=()=>{ if(hoverRegion===rg) hoverRegion=null; };
+  s.onclick=()=>{ standardFlyTo(rg.center, rg.level); };
+  return s;
+}
+const crumbEl=document.getElementById('crumb'), hudSubEl=document.getElementById('hudSub');
+let navSig='', navTick=0;
+function renderNav(){
+  const leaf=nearestLeaf(controls.target); if(!leaf) return;
+  const objs=chainObjs(leaf);               // 镜头当前所指这一片区域的完整地址
+  const nowLv=Math.max(0,curLod);
+  const sibs=siblingsOf(objs,nowLv);
+  const sig=nowLv+'|'+objs.map(o=>o.name).join('/')+'|'+sibs.map(o=>o.name).join(',');
+  if(sig===navSig) return;                  // 内容没变就不重建 DOM，免得把鼠标的悬浮打断
+  navSig=sig;
+  crumbEl.innerHTML='';
+  const root=document.createElement('span');
+  root.className='c'+(nowLv===0?' now':''); root.textContent='常世';
+  root.onmouseenter=()=>{ hoverRegion=null; };
+  root.onclick=()=>standardFlyTo(new THREE.Vector3(0,0,0),0);
+  crumbEl.appendChild(root);
+  for(let lv=0; lv<6; lv++){ crumbEl.appendChild(navSep('›')); crumbEl.appendChild(nameSpan(objs[lv], lv===nowLv && nowLv>0)); }
+  // 第二行：先给"当前这一级的兄弟"，方便横着换一个；再补一句该级的诗意短句
+  hudSubEl.innerHTML='';
+  if(nowLv>=1){ const lab=document.createElement('span'); lab.className='sibLab'; lab.textContent='同级 '; hudSubEl.appendChild(lab); }
+  sibs.forEach((rg,i)=>{ if(i) hudSubEl.appendChild(navSep('·')); hudSubEl.appendChild(nameSpan(rg, rg===objs[nowLv])); });
+  const poetic=LODS[nowLv].sub;
+  if(poetic && nowLv>0){ const t=document.createElement('span'); t.className='tag'; t.textContent=' · '+poetic; hudSubEl.appendChild(t); }
+  updateBackBtn();
+}
+document.getElementById('btnBack').onclick=()=>{
+  const s=viewStack.pop(); if(!s) return;
+  flyTo(s.e,s.t,1.2,false);                 // 退回上一个视野，本身不再入栈
+};
+renderNav();
+
+/* 热力透明度：按 LOD 显隐 + 靠近时自动淡出（避免巨大色块糊住屏幕） */
+function updateHeat(){
+  heatSprites.forEach(sp=>{
+    const lvOk=LODS[curLod].heat.includes(sp.userData.lv);
+    const r=sp.scale.x/2, dd=camera.position.distanceTo(sp.position);
+    const near = dd<r*3 ? Math.max(0,(dd-r*1.2)/(r*1.8)) : 1;
+    sp.userData.targetOp = lvOk ? sp.userData.op*near : 0;
+  });
+}
+
+/* ============ 镜头飞行 ============ */
+let fly=null;
+function flyTo(eye,tgt,dur=1.8,push=true){
+  if(push){ viewStack.push({e:camera.position.clone(),t:controls.target.clone()});
+    if(viewStack.length>12) viewStack.shift(); }
+  fly={e0:camera.position.clone(),e1:eye,t0:controls.target.clone(),t1:tgt,t:0,dur};
+  updateBackBtn();
+}
+const ease=x=>x<.5?2*x*x:1-Math.pow(-2*x+2,2)/2;
+
+/* 射线工具：滚轮缩放、点击飞行、悬浮提示共用 */
+const ray=new THREE.Raycaster();
+ray.params.Points.threshold=2.0;
+const _ndc=new THREE.Vector2();
+function ndcOf(ev){
+  const r=renderer.domElement.getBoundingClientRect();
+  return _ndc.set(((ev.clientX-r.left)/r.width)*2-1, -((ev.clientY-r.top)/r.height)*2+1);
+}
+
+/* 滚轮缩放改成「以鼠标指的地方为中心」（zoom to cursor）。
+   默认的 OrbitControls 缩放只沿"相机→轨道中心"这条线拉近，轨道中心停在原地，
+   所以朝别的区域滚轮并不会真的靠近那里 —— 这就是"看别的地方永远是小点"的原因。 */
+controls.enableZoom=false;
+const _groundPlane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+const _hitPt=new THREE.Vector3();
+renderer.domElement.addEventListener('wheel', ev=>{
+  ev.preventDefault();
+  ray.setFromCamera(ndcOf(ev), camera);
+  if(!ray.ray.intersectPlane(_groundPlane,_hitPt)) _hitPt.copy(controls.target); // 仰视天空时退回普通缩放
+  const dist=camera.position.distanceTo(controls.target);
+  let s=Math.pow(0.9992,-ev.deltaY);
+  const nd=dist*s;
+  if(nd<controls.minDistance) s=controls.minDistance/dist;
+  else if(nd>controls.maxDistance) s=controls.maxDistance/dist;
+  // 以鼠标落点为中心，把相机与轨道中心同步缩放 → 视角真的"走进"你指的那片区域
+  controls.target.sub(_hitPt).multiplyScalar(s).add(_hitPt);
+  camera.position.sub(_hitPt).multiplyScalar(s).add(_hitPt);
+}, {passive:false});
+
+/* 点击地面上的某个光点 → 镜头飞过去，它就会立成一座塔（拖拽旋转不算点击）；
+   点命星 → 直接飞回自己的里（任何缩放级别都生效）；
+   点塔身某一层圆饼 → 给他那一天添一颗星 */
+let downPt=null;
+renderer.domElement.addEventListener('pointerdown', e=>{ downPt={x:e.clientX,y:e.clientY}; });
+renderer.domElement.addEventListener('pointerup', e=>{
+  const p=downPt; downPt=null;
+  if(!p) return;
+  if(Math.hypot(e.clientX-p.x, e.clientY-p.y)>4) return;  // 是拖拽，不是点击
+  ray.setFromCamera(ndcOf(e), camera);
+  if(meUser && meMark.visible && ray.intersectObject(meStar,false).length){ flyHome(); return; }
+  const th = curLod>=4 ? pickTower(e.clientX,e.clientY) : null;
+  if(th && th.tier){ tryAddStar(th.uid, th.tier, e); return; }
+  if(th && th.isFig){                                       // 点小人 = 再走近一点看
+    const u=users.find(x=>x.id===th.uid);
+    if(u){ flyTo(u.pos.clone().add(new THREE.Vector3(7,tierY(6)+5,10)), u.pos.clone()); return; }
+  }
+  if(curLod<2) return;                                    // 点还没出现时忽略
+  const hits=ray.intersectObject(userPts,false);
+  if(hits.length){
+    const u=users[hits[0].index];
+    if(u) flyTo(u.pos.clone().add(new THREE.Vector3(9,tierY(6)+7,12)), u.pos.clone());
+  }
+});
+
+/* 悬浮判定（塔层圆饼 / 塔上小人 / 缩小后的光点）统一放在后面的"近观交互"一节，
+   因为命星要优先拿到这次悬浮，不能在这里各写各的游标 */
+
+/* ============ 降生流程 ============ */
+const mask=document.getElementById('mask');
+let avatar=1, contIdx=0, shakes=3, pickedLeaf=null, meUser=null;
+document.getElementById('btnBorn').onclick=()=>{ mask.classList.add('on'); };
+document.getElementById('btnCancel').onclick=()=>mask.classList.remove('on');
+document.querySelectorAll('#avatarPick .opt').forEach(el=>el.onclick=()=>{
+  document.querySelectorAll('#avatarPick .opt').forEach(x=>x.classList.remove('sel'));
+  el.classList.add('sel'); avatar=+el.dataset.v;
+});
+const cp=document.getElementById('contPick');
+CONTINENTS.forEach((n,i)=>{
+  const d=document.createElement('div'); d.className='opt'+(i===0?' sel':'');
+  d.innerHTML=`<div class="n" style="font-family:'Songti SC','SimSun',serif;font-size:15px;margin-top:18px">${n}</div>`;
+  d.onclick=()=>{[...cp.children].forEach(x=>x.classList.remove('sel')); d.classList.add('sel'); contIdx=i;};
+  cp.appendChild(d);
+});
+function chainOf(leaf){ const names=[]; let p=leaf; while(p){names.unshift(p.name); p=p.parent;} return names; }
+/* 摇签：不能"啪"一下就出结果 —— 先抖签筒，再让地名从洲到里逐级飞快翻动、
+   一级一级锁死，最后停在天命那一组上。仪式感就藏在这 1.3 秒里。 */
+let rolling=false;
+function drawChain(names,last){
+  document.getElementById('chain').innerHTML=
+    names.map((n,i)=>`<span${i===last?' style="color:#e5484d"':''}>${n}</span>`).join('<span class="sep">·</span>');
+}
+document.getElementById('btnShake').onclick=()=>{
+  if(shakes<=0 || rolling) return;
+  const root=regionsByLevel[0][contIdx], leaves=[];
+  (function walk(n){ if(n.level===5) leaves.push(n); else n.children.forEach(walk); })(root);
+  pickedLeaf=leaves[Math.floor(Math.random()*leaves.length)];
+  const finalNames=chainOf(pickedLeaf);
+  const card=document.querySelector('.card');
+  const btnShake=document.getElementById('btnShake'), btnConfirm=document.getElementById('btnConfirm');
+  const info=document.getElementById('shakeInfo');
+  // 签筒抖起来
+  card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake');
+  rolling=true; btnShake.disabled=true; btnConfirm.disabled=true;
+  info.textContent='签筒摇动中……';
+  const randName=i=> i===0 ? CONTINENTS[Math.floor(Math.random()*CONTINENTS.length)]
+    : POOL[i][Math.floor(Math.random()*POOL[i].length)]+SUF[i];
+  const T0=performance.now(), DUR=1300;
+  (function tick(){
+    const k=Math.min(1,(performance.now()-T0)/DUR);
+    // 逐级锁死：第 i 级在 k > 0.42+i*0.1 之后不再翻
+    drawChain(finalNames.map((n,i)=> k>0.42+i*0.1 ? n : randName(i)), finalNames.length-1);
+    if(k<1){ requestAnimationFrame(tick); return; }
+    rolling=false; shakes--;
+    drawChain(finalNames, finalNames.length-1);
+    info.textContent = shakes>0 ? `剩余摇签次数：${shakes}` : '签数已尽，此即天命';
+    btnShake.disabled = shakes===0;
+    btnConfirm.disabled=false;
+    card.classList.remove('shake');
+  })();
+};
+document.getElementById('btnConfirm').onclick=()=>{
+  if(!pickedLeaf) return;
+  mask.classList.remove('on');
+  document.getElementById('btnHome').disabled=false;
+  // 清理旧的「我」
+  if(meUser){ const old=towerCache.get('me'); if(old){scene.remove(old.group); towerCache.delete('me');} const i=users.indexOf(meUser); if(i>=0) users.splice(i,1); }
+  // 落籍：占用该里下一个空槽位
+  const k=Math.min(pickedLeaf.userCount,3);
+  const slot = k<3 ? SLOTS[k] : new THREE.Vector3(0,0,0);
+  meUser={ id:'me', pos:pickedLeaf.center.clone().add(slot), hue:.02, vitality:1, layers:6, avatar,
+    chain:chainOf(pickedLeaf), leafName:pickedLeaf.name,
+    startDate:TODAY-5*DAY_MS, lastDate:TODAY,
+    satByTier:[2,1,3,1,2,2,0,0] };
+  users.push(meUser);
+  rebuildPts();
+  refreshHoverColors();                        // 悬浮高亮也染成我的终身色
+  // 命星落到自己那个里上方，颜色取终身色相；悬浮展开的籍贯牌写完整链条
+  meMark.position.set(meUser.pos.x,0,meUser.pos.z);
+  const meHue=new THREE.Color().setHSL(meUser.hue,.82,.55);
+  meStar.material.color.copy(meHue);
+  meRipples.forEach(rp=>rp.mat.color.copy(meHue));
+  meTip.textContent=meUser.chain.join(' · ');
+  meArrow.style.background='#'+meHue.getHexString();
+  const c=meUser.pos;
+  flyTo(c.clone().add(new THREE.Vector3(17,tierY(6)+11,23)), c.clone());
+};
+document.getElementById('btnFar').onclick=()=>flyTo(new THREE.Vector3(0,1050,1350),new THREE.Vector3(0,0,0),2.2);
+document.getElementById('btnHome').onclick=()=>flyHome();
+
+/* ============ 我的命星 ============
+   缩到远处后，塔会隐去、只剩一枚印记小点，茫茫星海里找不到"我在哪"。
+   所以给自己的印记上方悬一颗命星（细线四芒星）：永远可见、缓缓自转、轻轻呼吸；
+   地面上再推出一圈慢慢向外扩散的涟漪，像心跳 ——「这里是你」。
+   别人的涟漪都藏进聚合热力里，只暴露你自己这一处，不泄露他人信息。 */
+function starTexture(){
+  const S=256, c=document.createElement('canvas'); c.width=c.height=S;
+  const x=c.getContext('2d'), h=S/2;
+  // 极淡光晕打底，让星星在远处也有一点晕开的柔光
+  const glow=x.createRadialGradient(h,h,2,h,h,S*0.5);
+  glow.addColorStop(0,'rgba(255,255,255,0.30)');
+  glow.addColorStop(0.42,'rgba(255,255,255,0.09)');
+  glow.addColorStop(1,'rgba(255,255,255,0)');
+  x.fillStyle=glow; x.fillRect(0,0,S,S);
+  // 四芒星：四个长尖（偶数顶点）+ 收腰（奇数顶点），用细线勾边
+  const R=S*0.47, ri=S*0.105;
+  x.beginPath();
+  for(let i=0;i<8;i++){
+    const a=-Math.PI/2+i*Math.PI/4, rad=(i%2===0)?R:ri;
+    const px=h+Math.cos(a)*rad, py=h+Math.sin(a)*rad;
+    i ? x.lineTo(px,py) : x.moveTo(px,py);
+  }
+  x.closePath();
+  x.fillStyle='rgba(255,255,255,0.96)'; x.fill();
+  x.strokeStyle='rgba(255,255,255,1)'; x.lineWidth=S*0.010; x.stroke();
+  return new THREE.CanvasTexture(c);
+}
+const ME_COLOR='#f2705f';
+const meMark=new THREE.Group(); meMark.visible=false; scene.add(meMark);
+const meStar=new THREE.Sprite(new THREE.SpriteMaterial({
+  map:starTexture(), color:new THREE.Color(ME_COLOR), transparent:true, depthWrite:false }));
+meStar.scale.set(2,2,1); meMark.add(meStar);
+// 地面涟漪：两个单位圆，靠 scale 扩散、opacity 同步淡出
+const meRipples=[];
+for(let i=0;i<2;i++){
+  const mat=new THREE.LineBasicMaterial({color:new THREE.Color(ME_COLOR),transparent:true,opacity:0});
+  const ring=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ringPoints(1)),mat);
+  ring.rotation.x=-Math.PI/2; ring.position.y=0.12;
+  meMark.add(ring); meRipples.push({ring,mat});
+}
+const meTip=document.getElementById('meTip');
+const meArrow=document.getElementById('meArrow');
+function flyHome(){ if(!meUser) return;
+  flyTo(meUser.pos.clone().add(new THREE.Vector3(17,tierY(6)+11,23)), meUser.pos.clone()); }
+meArrow.onclick=flyHome;
+
+function updateMeMark(t){
+  if(!meUser){ meMark.visible=false; return; }
+  meMark.visible=true;
+  // 星星的世界尺寸随镜头距离放大 —— 屏幕上大小基本恒定，
+  // 于是从"常世·四洲"一路凑近到"里"，头顶那颗星都一眼可见
+  const d0=camera.position.distanceTo(controls.target);
+  const S=THREE.MathUtils.clamp(0.045*d0,1.0,48);
+  meStar.position.y=pegHeight(meUser.layers)+1.9+Math.sin(t*1.1)*0.06*S;
+  meStar.scale.set(S,S,1);
+  meStar.material.rotation=t*0.35;                     // 缓缓自转，像星子在转
+  // 缩得越小涟漪越明显；凑近了就淡下去，别糊住塔身
+  const rf=0.15+0.85*THREE.MathUtils.clamp(1-30/d0,0,1);
+  const Rmax=THREE.MathUtils.clamp(0.10*d0,3,80);
+  meRipples.forEach((rp,i)=>{
+    const p=((t/3.4)+i*0.5)%1;
+    rp.ring.scale.setScalar(0.15+p*Rmax);
+    rp.mat.opacity=(1-p)*0.5*rf;
+  });
+}
+/* 命星转到画面外时，屏幕边缘出现一枚小箭头指向它，点它就能飞回 */
+function updateMeArrow(){
+  if(!meUser){ meArrow.style.display='none'; return; }
+  const v=_pv.copy(meUser.pos).setY(1).project(camera);
+  let dx=v.x, dy=v.y;
+  const behind=v.z>1; if(behind){ dx=-dx; dy=-dy; }    // 相机背后的点投影坐标会左右上下翻转
+  if(!behind && Math.abs(dx)<0.92 && Math.abs(dy)<0.92){ meArrow.style.display='none'; return; }
+  const W=innerWidth, H=innerHeight, m=30, cx=W/2, cy=H/2;
+  const ux=(dx*0.5+0.5)*W-cx, uy=(-dy*0.5+0.5)*H-cy;
+  const k=Math.min((W/2-m)/Math.max(Math.abs(ux),1e-6),(H/2-m)/Math.max(Math.abs(uy),1e-6));
+  meArrow.style.display='block';
+  meArrow.style.left=(cx+ux*k)+'px';
+  meArrow.style.top=(cy+uy*k)+'px';
+  meArrow.style.transform=`translate(-50%,-50%) rotate(${Math.atan2(uy,ux)*180/Math.PI+90}deg)`;
+}
+/* 悬浮命星 → 才展开完整籍贯；移开就收起，不占视线。
+   starHover 让后面的"塔层圆饼/小人/光点"悬浮判定让位：命星优先级最高 */
+let starHover=false;
+renderer.domElement.addEventListener('pointermove', ev=>{
+  if(!meUser || !meMark.visible){ starHover=false; meTip.classList.remove('on'); return; }
+  ray.setFromCamera(ndcOf(ev), camera);
+  const on=ray.intersectObject(meStar,false).length>0;
+  meTip.classList.toggle('on', on);
+  if(on){ meTip.style.left=ev.clientX+'px'; meTip.style.top=ev.clientY+'px';
+    renderer.domElement.style.cursor='pointer'; }
+});
+renderer.domElement.addEventListener('pointerleave', ()=>meTip.classList.remove('on'));
+
+/* ============ 近观交互：悬浮一层圆饼 / 悬浮小人 / 添星 ============
+   柱身本来就是"一天一层圆饼"堆起来的 —— 第 3 层饼就是他第 3 天的「在」。
+   所以点赞不另设按钮：移到哪一层，哪一层就醒过来，点下去就把那颗星添在那一天上。 */
+const tcard=document.getElementById('tcard');
+const myStars=new Set();                    // 已添过星的「塔id#层」：同一层只添一次，不可撤回
+const myStarDay=new Map();                  // 塔id -> 我最近一次为他添星的那一天
+/* "今天"取真实日历日（小样的基准日 TODAY 就是 2026-10-16，所以两者一致）——
+   过了午夜就是新的一天，又能挑一层从没添过星的去添。 */
+function todayStamp(){ return Math.floor(Date.now()/DAY_MS); }
+/* 添星有两条规矩，缺一不可：
+   ① 同一层永久只能添一次（myStars 记着）—— 添过的那一层，往后永远不再添；
+   ② 同一天里，对同一个人只能添一次（myStarDay 记着）—— 今天已经给过他星，
+      他别的层今天也一并锁上；到了第二天才能再添，而且只能挑「从没添过」的那层。
+   返回 'ok' 能添 / 'done' 这一层添过了 / 'today' 今天已经为他添过。 */
+function canStar(uid,tier){
+  if(myStars.has(uid+'#'+tier)) return 'done';
+  if(myStarDay.get(uid)===todayStamp()) return 'today';
+  return 'ok';
+}
+let hoverUid=null, hoverTier=null;          // 当前悬浮在哪座塔的哪一层
+let hlApplied=null;                         // 已经上色的那一层，换层时只回滚它自己
+
+function fmtDate(ms){ const d=new Date(ms);
+  return `${d.getUTCFullYear()}年${d.getUTCMonth()+1}月${d.getUTCDate()}日`; }
+function avatarSVG(s){
+  if(s===2) return `<svg viewBox="0 0 56 72" fill="none" stroke="#8a8a8f" stroke-width="1.4">
+    <circle cx="28" cy="13" r="8"/><path d="M21 10c-2 8-1 16 2 20M35 10c2 8 1 16-2 20"/>
+    <path d="M28 22v14M28 28l-11 8M28 28l11 8M20 36l8 8 8-8M22 44l-6 20M34 44l6 20"/></svg>`;
+  return `<svg viewBox="0 0 56 72" fill="none" stroke="#8a8a8f" stroke-width="1.4">
+    <circle cx="28" cy="13" r="8"/><path d="M28 22v20M28 28l-11 8M28 28l11 8M28 42l-9 22M28 42l9 22"/></svg>`;
+}
+
+/* 认"是哪座塔"用射线（它自带遮挡判断，谁在前面就认谁），
+   但认"是哪一层"改用投影法：把每层中心投到屏幕上，取离光标最近的那一层。
+   为什么认层不能靠射线 —— 俯视时上层的圆饼面积大，它的近侧边缘会压到下层圆饼的
+   屏幕位置上，射线永远先打到最上面那层（"只有最顶层变色"就是这么来的）；
+   投影法跟视角无关，从上往下看也能点到第 3 天。 */
+function toPx(v){ return { x:(v.x*.5+.5)*innerWidth, y:(-v.y*.5+.5)*innerHeight, back:v.z>1 }; }
+function _proj(x,y,z){ return toPx(_pv.set(x,y,z).project(camera)); }
+function pickTower(mx,my){
+  if(curLod<4) return null;
+  const vis=[]; towerCache.forEach(tw=>{ if(tw.group.visible) vis.push(tw.group); });
+  if(!vis.length) return null;
+  const hs=ray.intersectObjects(vis,true);
+  if(!hs.length) return null;
+  let o=hs[0].object, uid=null;
+  while(o){ if(o.userData.uid!==undefined){ uid=o.userData.uid; break; } o=o.parent; }
+  if(uid===null) return null;
+  const u=users.find(x=>x.id===uid); if(!u) return null;
+  const layers=u.layers, pegH=pegHeight(layers);
+  const pBase=_proj(u.pos.x,0,u.pos.z), pTop=_proj(u.pos.x,pegH,u.pos.z);
+  const hpx=Math.hypot(pTop.x-pBase.x,pTop.y-pBase.y);       // 这座塔在屏幕上有多高
+  if(pBase.back||pTop.back||hpx<45) return {uid,tier:null,isFig:false};  // 太小或在相机背后，挑不出是哪一天
+  const pFig=_proj(u.pos.x,pegH+.52,u.pos.z);                // 先看是不是在摸塔顶的小人
+  if(Math.hypot(pFig.x-mx,pFig.y-my) < THREE.MathUtils.clamp(hpx*.3,18,46)) return {uid,tier:null,isFig:true};
+  let best=null, bd=1e9;                                     // 再逐层比谁离光标近
+  for(let i=1;i<=layers;i++){
+    const p=_proj(u.pos.x,tierY(i),u.pos.z);
+    const d=Math.hypot(p.x-mx,p.y-my);
+    if(d<bd){ bd=d; best=i; }
+  }
+  const near=THREE.MathUtils.clamp(hpx/layers*.8,7,30);
+  return bd<=near ? {uid,tier:best,isFig:false} : {uid,tier:null,isFig:false};
+}
+function tierDate(u,tier){ return fmtDate(u.startDate+(tier-1)*DAY_MS); }
+
+/* 卡一：移到某一层圆饼上 —— 这一天他在这里发布了「在」，并给出添星提示 */
+function showTierCard(uid,tier,ev){
+  const u=users.find(x=>x.id===uid); if(!u) return;
+  const mine=u.id==='me', st=mine?'mine':canStar(uid,tier);
+  const act = st==='mine' ? '这是你自己的塔'
+            : st==='done' ? '已为他添过一颗星'
+            : st==='today'? '今日已为他添过星，明日再来'
+            : '点击，为他添一颗星';
+  tcard.innerHTML =
+    `<div class="t1">第 ${tier} 天 · ${tierDate(u,tier)}</div>`+
+    `<div class="t2">在 ${u.leafName} 发布了「在」</div>`+
+    `<div class="act${st==='ok'?'':' done'}">${act}</div>`;
+  tcard.classList.toggle('below', tier>=u.layers-1);   // 塔顶两层从下方展开，别盖住小人和旗帜
+  tcard.classList.add('on');
+  tcard.style.left=ev.clientX+'px'; tcard.style.top=ev.clientY+'px';
+}
+/* 卡二：移到塔上小人身上 —— 一张匿名的"人"的卡片（无昵称、无头像、无排名） */
+function showWhoCard(uid,ev){
+  const u=users.find(x=>x.id===uid); if(!u) return;
+  const stars=(u.satByTier||[]).reduce((a,b)=>a+b,0);
+  tcard.innerHTML =
+    `<div class="who">${avatarSVG(u.avatar)}<div>
+       <div class="t1">${u.id==='me'?'你自己':('落籍 · '+u.leafName)}</div>
+       <div class="t2">在此发布了 ${u.layers} 天「在」</div>
+       <div class="t2">最近一次 · ${fmtDate(u.lastDate)}</div>
+       <div class="t2">累计被添星 ${stars} 颗</div>
+     </div></div>`;
+  tcard.classList.add('below','on');                   // 人物卡一律从下方展开：上方是旗帜，别遮
+  tcard.style.left=ev.clientX+'px'; tcard.style.top=ev.clientY+'px';
+}
+
+let hoverSkip=0;
+renderer.domElement.addEventListener('pointermove', ev=>{
+  if(starHover) return;                     // 命星已接管这次悬浮（优先级最高）
+  if(hoverSkip++ & 1) return;               // 隔次检测，省性能
+  ray.setFromCamera(ndcOf(ev), camera);
+  const th=pickTower(ev.clientX,ev.clientY);
+  if(th && th.isFig){ hoverUid=null; hoverTier=null;
+    renderer.domElement.style.cursor='default'; showWhoCard(th.uid,ev); return; }
+  if(th && th.tier){ hoverUid=th.uid; hoverTier=th.tier;
+    renderer.domElement.style.cursor='pointer'; showTierCard(th.uid,th.tier,ev); return; }
+  hoverUid=null; hoverTier=null;
+  tcard.classList.remove('on');
+  // 没打到塔，才轮到缩小后的光点（提示"可以点进去"）
+  renderer.domElement.style.cursor=(curLod>=2 && ray.intersectObject(userPts,false).length)?'pointer':'';
+});
+renderer.domElement.addEventListener('pointerleave', ()=>tcard.classList.remove('on'));
+
+/* 层圆饼的悬浮高亮：移入哪一层，那一层就染上"我的终身色"——淡珊瑚填充 + 珊瑚描边。
+   和头顶的命星、以及我添出去的那颗小晶体同色，语义很直白：
+   「鼠标停在这一天，就表示这一颗星将由我落下」。只动被选中的那层，换层时原样还回去。 */
+const REST_FILL=new THREE.Color(0xffffff), REST_EDGE=new THREE.Color(LINE_GREY);
+/* 今天已经为他添过星时，他其余的层一律锁上 —— 锁住的层不给"我的终身色"，
+   只泛一点浅灰、也不抬起来，让人一眼看出"这层今天别碰"。 */
+const LOCK_FILL=new THREE.Color(0xf5f5f7), LOCK_EDGE=new THREE.Color(0xc6c6cb);
+let HOVER_FILL=new THREE.Color().setHSL(.02,.72,.88);
+let HOVER_EDGE=new THREE.Color().setHSL(.02,.85,.5);
+function refreshHoverColors(){
+  const hue = meUser ? meUser.hue : .02;
+  HOVER_FILL.setHSL(hue,.72,.88);
+  HOVER_EDGE.setHSL(hue,.85,.5);
+}
+/* 只写"目标值"：颜色、边线透明度、那一层微微抬起 —— 全交给主循环逐帧 lerp 追上去。
+   以前是 set() 直接跳过去，所以"变色很生硬"；现在有过渡，像那层饼自己醒过来。
+   locked=true 表示这层今天点不动（今天已为他添过星），那就染灰、不抬起。 */
+function setSliceColor(tw,tier,on,locked){
+  if(!tw||!tw.slices) return;
+  tw.slices.forEach(s=>{
+    if(s.userData.tier!==tier) return;
+    const ud=s.material.userData;
+    const fill = on ? (locked?LOCK_FILL:HOVER_FILL) : REST_FILL;
+    const edge = on ? (locked?LOCK_EDGE:HOVER_EDGE) : REST_EDGE;
+    ud.tar.copy(s.isMesh ? fill : edge);
+    ud.tarOp = on ? (locked?.7:1) : (s.isMesh ? 1 : .8);
+    s.userData.tarY = s.userData.tarY0 + ((on && !locked)?.07:0);
+  });
+}
+function applyHoverHighlight(){
+  const want = (curLod>=4 && hoverTier!=null) ? {uid:hoverUid,tier:hoverTier} : null;
+  // 今天已锁（'today'）的层染灰；本层添过（'done'）仍留"我的色"，那是已落下的星
+  const locked = want ? canStar(want.uid,want.tier)==='today' : false;
+  if(hlApplied && want && hlApplied.uid===want.uid && hlApplied.tier===want.tier
+     && hlApplied.locked===locked) return;
+  if(hlApplied){ setSliceColor(towerCache.get(hlApplied.uid),hlApplied.tier,false); hlApplied=null; }
+  if(want){ const tw=towerCache.get(want.uid);
+    if(tw){ setSliceColor(tw,want.tier,true,locked); hlApplied={...want,locked}; } }
+}
+
+/* 一圈从某层炸开、向外扩散又淡掉的涟漪 —— 用来说明"刚刚这里发生了一件事"。
+   和地面上的命星涟漪同一套做法：单位圆靠 scale 扩散、opacity 同步淡出。 */
+function rippleAt(tw,y,hue,delay=0){
+  const mat=new THREE.LineBasicMaterial({color:new THREE.Color().setHSL(hue,.8,.52),
+    transparent:true,opacity:0});
+  const ring=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ringPoints(1)),mat);
+  ring.rotation.x=-Math.PI/2; ring.position.y=y; ring.scale.setScalar(.2);
+  tw.group.add(ring);
+  (tw.fx||(tw.fx=[])).push({ring,mat,t0:clock.getElapsedTime()+delay});
+}
+/* 添星：数据先写死（这一层多一颗星），再让那颗星从他这一层的轨道上飘出来。
+   卫星的颜色是"我"的终身色 —— 一眼能看出这颗星是谁添的（但看不出是谁）。
+   另外补三样"看得见"：晶体弹着长出来、两圈炸开的涟漪、那一层光环亮一圈。 */
+function addSatToTower(tw,tier){
+  const or=tierOuter(tier)+.5, oy=tierY(tier)+.1;
+  if(!tw.orbitTiers.has(tier)){               // 这层原来一颗星都没有，先补一条轨道
+    const orbit=new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(ringPoints(or)),
+      new THREE.LineBasicMaterial({color:0xc9c9cc,transparent:true,opacity:.35}));
+    orbit.rotation.x=-Math.PI/2; orbit.position.y=oy; tw.group.add(orbit);
+    tw.orbitTiers.add(tier);
+  }
+  const count=tw.orbiters.filter(o=>o.tier===tier).length+1;
+  const hue=meUser?meUser.hue:.02;
+  const sat=new THREE.Group();
+  const satGeo=new THREE.OctahedronGeometry(.13,0);
+  sat.add(new THREE.Mesh(satGeo,new THREE.MeshBasicMaterial({color:new THREE.Color().setHSL(hue,.7,.5)})));
+  sat.add(new THREE.LineSegments(new THREE.EdgesGeometry(satGeo),
+    new THREE.LineBasicMaterial({color:new THREE.Color().setHSL(hue,.5,.8),transparent:true,opacity:.9})));
+  const i=count-1, a=(i/count)*Math.PI*2+hash01(i,tier)*.4;
+  sat.position.set(Math.cos(a)*or,oy,Math.sin(a)*or);
+  sat.scale.setScalar(0);                     // 从无到有，靠 grow 弹出来（带回弹过冲）
+  tw.group.add(sat);
+  tw.orbiters.push({dot:sat,a,y:oy,r:or,tier,idx:i,grow:0,
+    speed:(.08+hash01(tier,i,9)*.12)*(hash01(i,tier,3)<.5?1:-1)});
+  rippleAt(tw,oy,hue);
+  rippleAt(tw,oy,hue,.22);
+}
+/* 小人替他说声谢：旗面化成「谢」字、原地轻跳两下、挥旗快一档、那一层光环荡开一圈 */
+function thanksTo(tw,tier){
+  tw.thanks={tier,t0:clock.getElapsedTime()};
+  setFlagText(tw.figure,'谢');
+  rippleAt(tw,tierY(tier)+.1,meUser?meUser.hue:.02,.1);
+}
+function tryAddStar(uid,tier,ev){
+  const u=users.find(x=>x.id===uid); if(!u) return;
+  if(u.id==='me') return;                     // 不能给自己添星
+  if(canStar(uid,tier)!=='ok') return;        // ①同一层永久只添一次 ②同一天对同一人只添一次
+  myStars.add(uid+'#'+tier);
+  myStarDay.set(uid,todayStamp());
+  u.satByTier[tier-1]=(u.satByTier[tier-1]||0)+1;
+  const tw=towerCache.get(uid);
+  if(tw){ addSatToTower(tw,tier); thanksTo(tw,tier); }
+  showTierCard(uid,tier,ev);                  // 卡片立刻切成"已为他添过一颗星"
+}
+
+/* ============ 主循环 ============ */
+const clock=new THREE.Clock();
+(function loop(){
+  requestAnimationFrame(loop);
+  const t=clock.getElapsedTime();
+  if(fly){ fly.t+=1/60; const k=ease(Math.min(fly.t/fly.dur,1));
+    camera.position.lerpVectors(fly.e0,fly.e1,k); controls.target.lerpVectors(fly.t0,fly.t1,k);
+    if(k>=1) fly=null;
+  }
+  controls.update();
+  const d=camera.position.distanceTo(controls.target);
+  applyLod(lodOf(d));
+  updateLabels();
+  updateHeat();
+  updateTowers();
+  updateMeMark(t);
+  updateMeArrow();
+  applyHoverHighlight();
+  if(++navTick%6===0) renderNav();            // 导航条跟着镜头走：地名逐级解锁、当前那一级加重
+  // 悬停那层此刻能不能添星：只有"还能添"（'ok'）的那层，光环才跟着醒
+  const hoverStarable = hoverUid!=null && canStar(hoverUid,hoverTier)==='ok';
+  // 透明度补间
+  scene.traverse(o=>{ if(o.userData && o.userData.targetOp!==undefined && o.material && !Array.isArray(o.material)){
+    o.material.opacity += (o.userData.targetOp-o.material.opacity)*0.1;
+  }});
+  // 塔的灵动
+  towerCache.forEach(p=>{ if(!p.group.visible) return;
+    // 悬浮高亮的过渡：颜色、边线透明度、那一层的轻微抬起，全都逐帧 lerp 去追目标值 —— 不再是"啪"一下
+    for(const s of p.slices){
+      const ud=s.material.userData;
+      s.material.color.lerp(ud.tar,.16);
+      if(!s.isMesh) s.material.opacity += (ud.tarOp-s.material.opacity)*.16;
+      s.position.y += (s.userData.tarY-s.position.y)*.18;
+    }
+    // 被添星后的 2.4 秒：旗面是「谢」、小人原地轻跳、挥旗快一档、那一层光环荡开一圈
+    let thEnv=0;
+    if(p.thanks){
+      const k=(t-p.thanks.t0)/2.4;
+      if(k>=1){ setFlagText(p.figure,'在'); p.thanks=null; }
+      else thEnv=1-k;
+    }
+    p.rings.forEach(r=>{
+      const wrap=r.wrap, v=r.v;
+      const boost=(thEnv>0 && p.thanks && r.tier===p.thanks.tier) ? 1+thEnv*1.8 : 1;
+      const hv=(hoverUid===p.uid && r.tier===hoverTier && hoverStarable) ? 1 : 0;  // 停着且还能添的那层，环才醒
+      wrap.position.y=(wrap.userData.baseY??=wrap.position.y)+Math.sin(t*r.speed+r.phase)*.06*v;
+      wrap.rotation.z=Math.sin(t*r.speed*.6+r.phase)*.02*v;
+      const pulse=(1+Math.sin(t*r.speed*1.2+r.phase)*.018*v)*(1+(boost-1)*.5)*(1+hv*.05);
+      wrap.scale.setScalar(pulse);
+      r.mat.opacity=(.12+.85*v)*(1+Math.sin(t*r.speed+r.phase)*.08*v)*boost*(1+hv*.45);
+    });
+    for(const o of p.orbiters){
+      o.a+=o.speed*.016;
+      // 刚添的那颗星：从零弹出来（带一点过冲），并从轨道下方轻轻浮上来
+      if(o.grow!==undefined && o.grow<1) o.grow=Math.min(1,o.grow+1/60);
+      const g1=o.grow===undefined?0:(o.grow-1);
+      const kk=o.grow===undefined?1:(1+4*g1*g1*g1+3*g1*g1);
+      o.dot.position.x=Math.cos(o.a)*o.r;
+      o.dot.position.z=Math.sin(o.a)*o.r;
+      o.dot.position.y=o.y+Math.sin(t*1.5+o.a*3)*.06-(1-kk)*.8;
+      if(o.grow!==undefined) o.dot.scale.setScalar(kk);
+    }
+    if(p.fx) for(let i=p.fx.length-1;i>=0;i--){        // 添星/道谢炸开的涟漪：扩散出去、淡掉、回收
+      const f=p.fx[i], k=(t-f.t0)/1.15;
+      if(k<0) continue;
+      if(k>=1){ p.group.remove(f.ring); f.ring.geometry.dispose(); f.mat.dispose(); p.fx.splice(i,1); continue; }
+      f.ring.scale.setScalar(.2+2.4*ease(k));
+      f.mat.opacity=(1-k)*.75;
+    }
+    const v=Math.max(p.vitality,.08);
+    // 道谢时小人原地轻跳两下 —— 旗面换字在远处太小，跳一下整座塔都看得见
+    const kth=p.thanks ? Math.min(1,(t-p.thanks.t0)/1.6) : 1;
+    p.figure.group.position.y=pegHeight(p.layers)+(p.thanks?Math.abs(Math.sin(kth*Math.PI*2))*.26*(1-kth):0);
+    const wf=p.thanks?2.6:1;                        // 道谢时挥手明显快一档
+    p.figure.wavePivot.rotation.z=.7+Math.sin(t*(1+p.vitality*2)*wf)*.22*v*(p.thanks?1.7:1);
+    p.figure.flagMat.color.copy(DORMANT).lerp(p.vivid,v);
+    const pos=p.figure.flagGeo.attributes.position;
+    for(let i=0;i<pos.count;i++){
+      const bx=p.figure.flagBase[i*3],by=p.figure.flagBase[i*3+1],bz=p.figure.flagBase[i*3+2];
+      const loose=(bx+.33)/.66;
+      pos.setXYZ(i,bx,by,bz+Math.sin(t*5+bx*9)*.05*loose*p.vitality);
+    }
+    pos.needsUpdate=true;
+  });
+  renderer.render(scene,camera);
+})();
+
+/* 自动化核对用的锚点：直接读相机位置、当前层级、导航条文字，判断"点一下是不是真的飞过去了" */
+window.__cz={ camera, controls, standardFlyTo, flyHome,
+  get lod(){ return curLod; }, get flying(){ return !!fly; },
+  get nav(){ return crumbEl.textContent; }, get sub(){ return hudSubEl.textContent; },
+  get back(){ return viewStack.length; }, get hover(){ return hoverRegion?hoverRegion.name:null; },
+  get dist(){ return camera.position.distanceTo(controls.target); },
+  get flyT(){ return fly ? fly.t1.toArray() : null; } };
+
+addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+</script>
 </body>
 </html>
